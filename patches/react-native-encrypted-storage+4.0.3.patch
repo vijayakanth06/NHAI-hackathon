@@ -1,0 +1,34 @@
+diff --git a/node_modules/react-native-encrypted-storage/android/build.gradle b/node_modules/react-native-encrypted-storage/android/build.gradle
+index b343dc8..a6ec81b 100644
+--- a/node_modules/react-native-encrypted-storage/android/build.gradle
++++ b/node_modules/react-native-encrypted-storage/android/build.gradle
+@@ -20,6 +20,7 @@ def getExtOrIntegerDefault(name) {
+ }
+ 
+ android {
++  namespace "com.emeraldsanto.encryptedstorage"
+   compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+   buildToolsVersion getExtOrDefault('buildToolsVersion')
+ 
+diff --git a/node_modules/react-native-encrypted-storage/android/src/main/AndroidManifest.xml b/node_modules/react-native-encrypted-storage/android/src/main/AndroidManifest.xml
+index d8955f7..ce73e0c 100644
+--- a/node_modules/react-native-encrypted-storage/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-encrypted-storage/android/src/main/AndroidManifest.xml
+@@ -1,6 +1,5 @@
+ <manifest 
+     xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:tools="http://schemas.android.com/tools"
+-    package="com.emeraldsanto.encryptedstorage"
+ >
+ </manifest>
+diff --git a/node_modules/react-native-encrypted-storage/android/build.gradle b/node_modules/react-native-encrypted-storage/android/build.gradle
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-encrypted-storage/android/build.gradle
++++ b/node_modules/react-native-encrypted-storage/android/build.gradle
+@@ -20,6 +20,7 @@
+ }
+ 
+ android {
++  namespace "com.emeraldsanto.encryptedstorage"
+   compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+   buildToolsVersion getExtOrDefault('buildToolsVersion')

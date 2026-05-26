@@ -1,0 +1,22 @@
+diff --git a/node_modules/react-native-worklets-core/android/src/main/AndroidManifest.xml b/node_modules/react-native-worklets-core/android/src/main/AndroidManifest.xml
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-worklets-core/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-worklets-core/android/src/main/AndroidManifest.xml
+@@ -1,5 +1,4 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="com.worklets">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+ </manifest>
+diff --git a/node_modules/react-native-worklets-core/android/build.gradle b/node_modules/react-native-worklets-core/android/build.gradle
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-worklets-core/android/build.gradle
++++ b/node_modules/react-native-worklets-core/android/build.gradle
+@@ -70,6 +70,7 @@
+ }
+ 
+ android {
++  namespace "com.worklets"
+   compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
+ 
+   defaultConfig {

@@ -1,0 +1,26 @@
+diff --git a/node_modules/react-native-fast-tflite/cpp/HybridTfliteModel.cpp b/node_modules/react-native-fast-tflite/cpp/HybridTfliteModel.cpp
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-fast-tflite/cpp/HybridTfliteModel.cpp
++++ b/node_modules/react-native-fast-tflite/cpp/HybridTfliteModel.cpp
+@@ -92,7 +92,7 @@
+                              ")!");
+   }
+ 
+-  for (int32_t i = 0; i < inputCount; i++) {
++  for (size_t i = 0; i < inputCount; i++) {
+     TfLiteTensor* tensor = TfLiteInterpreterGetInputTensor(_interpreter, i);
+     const std::shared_ptr<ArrayBuffer>& buffer = input[i];
+     TfLiteTensorCopyFromBuffer(tensor, buffer->data(), buffer->size());
+diff --git a/node_modules/react-native-fast-tflite/cpp/TfliteHelpers.cpp b/node_modules/react-native-fast-tflite/cpp/TfliteHelpers.cpp
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-fast-tflite/cpp/TfliteHelpers.cpp
++++ b/node_modules/react-native-fast-tflite/cpp/TfliteHelpers.cpp
+@@ -39,6 +39,8 @@
+       return "unresolved-ops";
+     case kTfLiteCancelled:
+       return "cancelled";
++    case kTfLiteOutputShapeNotKnown:
++      return "output-shape-not-known";
+   }
+   return "unknown";
+ }

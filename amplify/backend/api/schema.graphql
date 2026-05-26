@@ -1,0 +1,11 @@
+type AttendanceRecord @model @auth(rules: [{allow: owner}]) {
+  id: ID!
+  userHash: String!
+  timestamp: AWSTimestamp!
+  latitude: Float
+  longitude: Float
+  confidence: Float!
+  livenessScore: Float!
+  deviceId: String!
+  syncStatus: String!
+}

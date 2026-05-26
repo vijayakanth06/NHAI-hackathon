@@ -1,0 +1,37 @@
+diff --git a/node_modules/@react-native-community/netinfo/android/build.gradle b/node_modules/@react-native-community/netinfo/android/build.gradle
+index d5fda29..9b6c1c1 100644
+--- a/node_modules/@react-native-community/netinfo/android/build.gradle
++++ b/node_modules/@react-native-community/netinfo/android/build.gradle
+@@ -80,6 +80,7 @@ if (isNewArchitectureEnabled()) {
+ }
+ 
+ android {
++  namespace "com.reactnativecommunity.netinfo"
+   compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+ 
+   def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+diff --git a/node_modules/@react-native-community/netinfo/android/src/main/AndroidManifest.xml b/node_modules/@react-native-community/netinfo/android/src/main/AndroidManifest.xml
+index 51cb573..417db45 100644
+--- a/node_modules/@react-native-community/netinfo/android/src/main/AndroidManifest.xml
++++ b/node_modules/@react-native-community/netinfo/android/src/main/AndroidManifest.xml
+@@ -1,7 +1,5 @@
+-
+ <manifest
+-	xmlns:android="http://schemas.android.com/apk/res/android"
+-	package="com.reactnativecommunity.netinfo">
++	xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+ 	<uses-permission
+ 		android:name="android.permission.ACCESS_NETWORK_STATE" />
+diff --git a/node_modules/@react-native-community/netinfo/android/build.gradle b/node_modules/@react-native-community/netinfo/android/build.gradle
+index 1234567..abcdefg 100644
+--- a/node_modules/@react-native-community/netinfo/android/build.gradle
++++ b/node_modules/@react-native-community/netinfo/android/build.gradle
+@@ -80,6 +80,7 @@
+ }
+ 
+ android {
++  namespace "com.reactnativecommunity.netinfo"
+   compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+ 
+   def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION

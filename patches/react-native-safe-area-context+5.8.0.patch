@@ -1,0 +1,23 @@
+diff --git a/node_modules/react-native-safe-area-context/android/build.gradle b/node_modules/react-native-safe-area-context/android/build.gradle
+index f324b9a..53eb2c9 100644
+--- a/node_modules/react-native-safe-area-context/android/build.gradle
++++ b/node_modules/react-native-safe-area-context/android/build.gradle
+@@ -39,6 +39,7 @@ if (isNewArchitectureEnabled()) {
+ }
+ 
+ android {
++    namespace "com.th3rdwave.safeareacontext"
+     def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+     if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
+         namespace "com.th3rdwave.safeareacontext"
+diff --git a/node_modules/react-native-safe-area-context/android/src/main/AndroidManifest.xml b/node_modules/react-native-safe-area-context/android/src/main/AndroidManifest.xml
+index f5da598..4b624d1 100644
+--- a/node_modules/react-native-safe-area-context/android/src/main/AndroidManifest.xml
++++ b/node_modules/react-native-safe-area-context/android/src/main/AndroidManifest.xml
+@@ -1,5 +1,4 @@
+ 
+ <manifest
+-	xmlns:android="http://schemas.android.com/apk/res/android"
+-  package="com.th3rdwave.safeareacontext">
++	xmlns:android="http://schemas.android.com/apk/res/android">
+ </manifest>
