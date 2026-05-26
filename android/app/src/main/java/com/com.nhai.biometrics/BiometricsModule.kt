@@ -75,9 +75,8 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
 
         Log.d(TAG, "Input image: ${bmp.width}x${bmp.height} px")
 
-        // Center-crop to 4:3 aspect ratio BEFORE resizing to 320x240.
-        // This prevents squeezing a portrait (3:4) image into landscape (4:3),
-        // which would distort the face and make it tiny.
+        // Crop to 4:3 aspect ratio BEFORE resizing to 320x240.
+        // We use a 25% top-offset for portraits to avoid chopping the forehead.
         val targetRatio = 4f / 3f  // 320/240
         val srcW = bmp.width
         val srcH = bmp.height
@@ -92,13 +91,13 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
         } else if (srcRatio < targetRatio) {
             // Image is taller than 4:3 (portrait) — crop top/bottom
             val newH = (srcW / targetRatio).toInt()
-            val offsetY = (srcH - newH) / 2
+            val offsetY = (srcH - newH) / 4 // 25% offset from top
             cropped = Bitmap.createBitmap(bmp, 0, offsetY, srcW, newH)
         } else {
             cropped = bmp
         }
 
-        Log.d(TAG, "After center-crop: ${cropped.width}x${cropped.height} px")
+        Log.d(TAG, "After crop: ${cropped.width}x${cropped.height} px")
 
         // Now resize to 320x240 — the aspect ratio is already 4:3 so no distortion
         val scaled = Bitmap.createScaledBitmap(cropped, 320, 240, true)
@@ -127,7 +126,7 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                     ?: throw Exception("No face detected in frame")
 
                 // 2. Enhance if needed (Zero-DCE)
-                val finalFace = if (faceResult.meanBrightness < 80f) {
+                val finalFace = if (faceResult.meanBrightness < 0.313f) {
                     modelManager.enhanceWithZeroDce(faceResult.croppedFace)
                 } else {
                     faceResult.croppedFace
@@ -184,7 +183,7 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                     ?: throw Exception("No face detected in frame")
 
                 // 2. Enhance if needed (Zero-DCE)
-                val finalFace = if (faceResult.meanBrightness < 80f) {
+                val finalFace = if (faceResult.meanBrightness < 0.313f) {
                     modelManager.enhanceWithZeroDce(faceResult.croppedFace)
                 } else {
                     faceResult.croppedFace
