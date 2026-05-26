@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Polyline, Text as SvgText } from 'react-native-svg';
-import Animated, { useAnimatedProps } from 'react-native-reanimated';
+import Animated, { useAnimatedProps, SharedValue } from 'react-native-reanimated';
 import {
   LEFT_EYE_INDICES,
   RIGHT_EYE_INDICES,
@@ -12,7 +12,7 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
 interface FaceMeshOverlayProps {
-  landmarks: Animated.SharedValue<Array<{ x: number; y: number }>>;
+  landmarks: SharedValue<Array<{ x: number; y: number }>>;
   activeChallenge?: string;
 }
 

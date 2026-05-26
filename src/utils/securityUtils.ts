@@ -12,6 +12,9 @@
  * - DB encryption key: stored in Android Keystore / iOS Keychain
  */
 
+import { TextEncoder } from 'text-encoding';
+import 'react-native-get-random-values';
+
 /**
  * Compute SHA-256 hash of a string using the Web Crypto API
  * (available in React Native's JSI-based Hermes engine).
@@ -25,7 +28,9 @@ export async function sha256(input: string): Promise<string> {
   const data = encoder.encode(input);
 
   // Use SubtleCrypto if available (modern Hermes / JSC)
+  // @ts-ignore
   if (typeof globalThis.crypto?.subtle?.digest === 'function') {
+    // @ts-ignore
     const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
     return bufferToHex(hashBuffer);
   }
