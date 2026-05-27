@@ -97,15 +97,7 @@ class BiometricsService {
     return BiometricsModule.startLivenessChallenge();
   }
 
-  /**
-   * Start a new active liveness challenge.
-   *
-   * @returns ChallengeInstruction with action type, timeout, text, emoji
-   */
-  async startLivenessChallenge(): Promise<ChallengeInstruction> {
-    this.assertInitialized();
-    return BiometricsModule.startLivenessChallenge();
-  }
+
 
   /**
    * Check if the current challenge action was completed.
