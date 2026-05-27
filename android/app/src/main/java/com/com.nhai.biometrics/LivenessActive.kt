@@ -39,25 +39,21 @@ class LivenessActive {
         val emoji: String
     )
 
-    private val allChallenges = listOf("blink", "smile", "turn_left", "turn_right")
+    private val allChallenges = listOf("smile")
     private val selectedChallenges = mutableListOf<String>()
     private val completedChallenges = mutableListOf<String>()
     private var allChallengesCompleted = false
 
     private val challengeMetadata = mapOf(
-        "blink" to ChallengeInfo("blink", 5000, "Please blink your eyes", "👁️"),
-        "smile" to ChallengeInfo("smile", 5000, "Please give a natural smile", "😊"),
-        "turn_left" to ChallengeInfo("turn_left", 5000, "Turn your head to the left", "⬅️"),
-        "turn_right" to ChallengeInfo("turn_right", 5000, "Turn your head to the right", "➡️")
+        "smile" to ChallengeInfo("smile", 5000, "Please give a natural smile", "😊")
     )
 
     /**
-     * Select 2 random challenges for this session.
+     * Select random challenge (currently restricted to smile only).
      */
     fun selectRandomChallenge(): ChallengeInfo {
         if (selectedChallenges.isEmpty()) {
-            val shuffled = allChallenges.shuffled()
-            selectedChallenges.addAll(shuffled.take(2))
+            selectedChallenges.add("smile")
         }
         val nextChallenge = selectedChallenges.firstOrNull { it !in completedChallenges }
             ?: selectedChallenges[0]

@@ -38,12 +38,14 @@ interface HomeScreenProps {
   onNavigateEnroll: () => void;
   onNavigateAuth: () => void;
   onNavigateSync: () => void;
+  onNavigateAdmin: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigateEnroll,
   onNavigateAuth,
   onNavigateSync,
+  onNavigateAdmin,
 }) => {
   // System state
   const [isInitializing, setIsInitializing] = useState(false);
@@ -299,6 +301,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <View style={[styles.actionBadge, { backgroundColor: '#FF6D0015' }]}>
                     <Text style={[styles.actionBadgeText, { color: '#FF9E40' }]}>
                       AES-256
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Manage Database Card */}
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={onNavigateAdmin}
+                activeOpacity={0.85}
+              >
+                <View style={styles.actionCardContent}>
+                  <View
+                    style={[
+                      styles.actionIconCircle,
+                      { backgroundColor: '#FF6D0020' },
+                    ]}
+                  >
+                    <Text style={styles.actionIcon}>🗄️</Text>
+                  </View>
+                  <View style={styles.actionTextContainer}>
+                    <Text style={styles.actionTitle}>
+                      Manage Database
+                    </Text>
+                    <Text style={styles.actionDesc}>
+                      View, edit, and remove enrolled user identities
+                    </Text>
+                  </View>
+                  <Text style={styles.actionArrow}>›</Text>
+                </View>
+                <View style={styles.actionBadgeRow}>
+                  <View style={[styles.actionBadge, { backgroundColor: '#FF6D0015' }]}>
+                    <Text style={[styles.actionBadgeText, { color: '#FF9E40' }]}>
+                      CRUD Admin
                     </Text>
                   </View>
                 </View>

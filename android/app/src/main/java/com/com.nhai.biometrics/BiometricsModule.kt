@@ -7,6 +7,8 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
+import java.util.UUID
+import kotlin.math.sqrt
 
 class BiometricsModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -22,6 +24,24 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
     private lateinit var livenessPassive: LivenessPassive
     private lateinit var irisQualityAssessor: IrisQualityAssessor
     private lateinit var faceEmbedder: FaceEmbedder
+    private val livenessActive = LivenessActive()
+
+    // Layer 4: Challenge/Freshness tracking
+    private val activeChallenges = mutableMapOf<String, Long>() // challengeId -> timestamp
+    private val CHALLENGE_TTL_MS = 15000L // 15 seconds to complete a challenge
+
+    // Layer 2: Landmark indices for movement detection
+    // MediaPipe Face Mesh canonical indices
+    private val MOVEMENT_LANDMARK_INDICES = intArrayOf(
+        1,    // Nose tip
+        33,   // Left eye outer corner
+        263,  // Right eye outer corner
+        61,   // Mouth left corner
+        291,  // Mouth right corner
+        10,   // Forehead center
+        152   // Chin
+    )
+    private val MOVEMENT_THRESHOLD = 0.3f // Minimum cumulative L2 distance
 
     override fun getName() = "BiometricsModule"
 
@@ -116,14 +136,14 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun enroll(base64Image: String, userId: String, username: String, additionalData: String, promise: Promise) {
+    fun enroll(base64Image: String, userId: String, username: String, challengeAction: String, additionalData: String, promise: Promise) {
         scope.launch {
             try {
                 val frame = decodeBase64ToBytes(base64Image)
 
                 // 1. Detect Face
                 val faceResult = faceDetector.detect(frame)
-                    ?: throw Exception("No face detected in frame")
+                    ?: throw Exception("No face detected in frame. Ensure your face is clearly visible.")
 
                 // 2. Enhance if needed (Zero-DCE)
                 val finalFace = if (faceResult.meanBrightness < 0.313f) {
@@ -132,30 +152,50 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                     faceResult.croppedFace
                 }
 
-                // 3. Face Mesh Landmarks
-                val landmarks = faceMeshProcessor.extract(finalFace)
+                // 3. Face Mesh Landmarks & ACTIVE LIVENESS
+                val landmarks3D = faceMeshProcessor.extract(finalFace)
+                val landmarks2D = landmarks3D.map { LivenessActive.Landmark(it[0], it[1]) }.toTypedArray()
+                
+                // Validate Active Liveness Action (e.g. smile)
+                if (challengeAction.isNotEmpty()) {
+                    val actionPassed = livenessActive.evaluateChallenge(challengeAction, landmarks3D)
+                    if (!actionPassed) {
+                        throw Exception("Active Liveness Failed: You did not '$challengeAction'. Please try again.")
+                    }
+                }
 
-                // 4. Evaluate Liveness
+                // Frontal Pose Check (Yaw/Pitch) to ensure high-quality enrollment embeddings
+                val yaw = computeYaw(landmarks2D)
+                if (Math.abs(yaw) > 15f) {
+                    throw Exception("Please look straight at the camera. Head tilt detected.")
+                }
+
+                // 4. Evaluate Passive Liveness (Silent-FAS Max Score)
                 val livenessScore = livenessPassive.evaluate(frame, faceResult.boundingBox, null)
                 Log.d(TAG, "Liveness score (Enrollment): $livenessScore")
-                if (livenessScore < 0.4f) {
-                    val reason = if (livenessScore < 0.01f) {
-                        "Spoof detected — please use a real face for enrollment."
-                    } else {
-                        "Liveness confidence too low (score=${String.format("%.3f", livenessScore)}). Try better lighting, hold still, and use the front camera."
-                    }
-                    throw Exception(reason)
+                if (livenessScore < 0.998f) {
+                    throw Exception("Spoof detected — please use a real face for enrollment. Score: ${String.format("%.4f", livenessScore)}")
                 }
 
                 // 5. Iris Quality
-                val irisQuality = irisQualityAssessor.assess(frame, landmarks, faceResult.boundingBox)
-                Log.d(TAG, "Iris quality score (Enrollment): $irisQuality")
+                val irisQuality = irisQualityAssessor.assess(frame, landmarks3D, faceResult.boundingBox)
                 if (irisQuality < 0.3f) {
-                    throw Exception("Iris quality too low (score=${String.format("%.3f", irisQuality)}). Please remove glasses and ensure eyes are fully visible.")
+                    throw Exception("Iris quality too low. Please remove glasses and ensure eyes are fully visible.")
                 }
 
                 // 6. Extract embedding
                 val embedding = faceEmbedder.embed(finalFace)
+
+                // 7. Check for duplicate username
+                if (dbManager.checkUsernameExists(username)) {
+                    throw Exception("Username '$username' is already enrolled.")
+                }
+
+                // 8. Check for duplicate face (Threshold 0.55)
+                val existingUser = dbManager.findMatchingFace(embedding, 0.55f)
+                if (existingUser != null) {
+                    throw Exception("This face is already registered under user: $existingUser")
+                }
                 
                 // Store in DB
                 dbManager.enrollUser(userId, username, additionalData, embedding)
@@ -171,8 +211,18 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    private fun computeYaw(lm: Array<LivenessActive.Landmark>): Float {
+        val noseTip = lm[1]
+        val leftEar = lm[234]
+        val rightEar = lm[454]
+        val faceWidth = Math.sqrt(((leftEar.x - rightEar.x) * (leftEar.x - rightEar.x) + (leftEar.y - rightEar.y) * (leftEar.y - rightEar.y)).toDouble()).toFloat()
+        if (faceWidth == 0f) return 0f
+        val noseOffset = noseTip.x - ((leftEar.x + rightEar.x) / 2f)
+        return (noseOffset / faceWidth) * 90f
+    }
+
     @ReactMethod
-    fun authenticate(base64Image: String, promise: Promise) {
+    fun authenticate(base64Image: String, challengeAction: String, promise: Promise) {
         scope.launch {
             val startTime = System.currentTimeMillis()
             try {
@@ -182,63 +232,65 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                 val faceResult = faceDetector.detect(frame)
                     ?: throw Exception("No face detected in frame")
 
-                // 2. Enhance if needed (Zero-DCE)
                 val finalFace = if (faceResult.meanBrightness < 0.313f) {
                     modelManager.enhanceWithZeroDce(faceResult.croppedFace)
                 } else {
                     faceResult.croppedFace
                 }
 
-                // 3. Face Mesh Landmarks
-                val landmarks = faceMeshProcessor.extract(finalFace)
+                // 2. Face Mesh Landmarks & ACTIVE LIVENESS
+                val landmarks3D = faceMeshProcessor.extract(finalFace)
+                
+                if (challengeAction.isNotEmpty()) {
+                    val actionPassed = livenessActive.evaluateChallenge(challengeAction, landmarks3D)
+                    if (!actionPassed) {
+                        throw Exception("Active Liveness Failed: Please perform the requested action ('$challengeAction').")
+                    }
+                }
 
-                // 4. Evaluate Liveness
+                // 3. Evaluate Passive Liveness (Silent-FAS Max Score)
                 val livenessScore = livenessPassive.evaluate(frame, faceResult.boundingBox, null)
                 Log.d(TAG, "Liveness score: $livenessScore")
-                if (livenessScore < 0.4f) {
-                    val reason = if (livenessScore < 0.01f) {
-                        "Spoof detected — please use a real face (not a photo or screen)."
-                    } else {
-                        "Liveness confidence too low (score=${String.format("%.3f", livenessScore)}). Try better lighting, hold still, and use the front camera."
-                    }
-                    throw Exception(reason)
+                if (livenessScore < 0.998f) {
+                    throw Exception("Spoof detected — please use a real face (not a photo or screen).")
                 }
 
-                // 5. Iris Quality
-                val irisQuality = irisQualityAssessor.assess(frame, landmarks, faceResult.boundingBox)
-                Log.d(TAG, "Iris quality score: $irisQuality")
-                // Threshold lowered from 0.6 to 0.3 — iris quality depends heavily on camera resolution
+                // 4. Iris Quality
+                val irisQuality = irisQualityAssessor.assess(frame, landmarks3D, faceResult.boundingBox)
                 if (irisQuality < 0.3f) {
-                    throw Exception("Iris quality too low (score=${String.format("%.3f", irisQuality)}). Please remove glasses and ensure eyes are fully visible.")
+                    throw Exception("Iris quality too low. Please remove glasses.")
                 }
 
-                // 6. Face Recognition Embedding
+                // 5. Face Recognition Embedding
                 val embedding = faceEmbedder.embed(finalFace)
 
-                // 7. Verify identity against database
-                val storedEmbedding = dbManager.getEnrolledEmbedding()
-                if (storedEmbedding.isEmpty()) {
-                    throw Exception("No user enrolled in database.")
+                // 6. Verify identity against ALL enrolled users (Threshold 0.55)
+                val enrolledUsers = dbManager.getAllEnrolledUsers()
+                if (enrolledUsers.isEmpty()) {
+                    throw Exception("No users enrolled in database.")
                 }
 
-                var matchScore = 0f
-                for (i in embedding.indices) {
-                    matchScore += embedding[i] * storedEmbedding[i] // Cosine similarity (both L2-normalized)
+                var bestMatchScore = 0f
+                var bestUser: DatabaseManager.EnrolledUser? = null
+                for (user in enrolledUsers) {
+                    var dot = 0f
+                    for (i in embedding.indices) {
+                        dot += embedding[i] * user.embedding[i]
+                    }
+                    if (dot > bestMatchScore) {
+                        bestMatchScore = dot
+                        bestUser = user
+                    }
                 }
-                Log.d(TAG, "Face match score: $matchScore (threshold: 0.65)")
+                Log.d(TAG, "Best face match score: $bestMatchScore (threshold: 0.55), user: ${bestUser?.username}")
 
-                // Threshold lowered from 0.85 to 0.65 — realistic cosine similarity for
-                // same-person recognition with a 128-dim MobileFaceNet embedding.
-                // 0.85 was unrealistically high and would reject the same person.
-                val success = matchScore > 0.65f
-                val enrolledUserId = if (success) dbManager.getEnrolledUserId() else null
-
+                val success = bestMatchScore > 0.55f && bestUser != null
                 val inferenceTimeMs = System.currentTimeMillis() - startTime
 
-                if (success && enrolledUserId != null) {
+                if (success && bestUser != null) {
                     dbManager.insertAttendanceRecord(
-                        userHash = enrolledUserId,
-                        confidence = matchScore,
+                        userHash = bestUser.userHash,
+                        confidence = bestMatchScore,
                         livenessScore = livenessScore,
                         latitude = null,
                         longitude = null
@@ -247,21 +299,353 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
 
                 val result = WritableNativeMap().apply {
                     putBoolean("success", success)
-                    if (success && enrolledUserId != null) {
-                        putString("userId", enrolledUserId)
-                        
-                        val metadata = dbManager.getUserMetadata(enrolledUserId)
-                        if (metadata != null) {
-                            putString("username", metadata["username"])
-                            putString("additionalData", metadata["additionalData"])
-                        }
+                    if (success && bestUser != null) {
+                        putString("userId", bestUser.userHash)
+                        putString("username", bestUser.username)
+                        putString("additionalData", bestUser.additionalData)
                     } else {
-                        putString("message", "Face not recognized")
+                        putString("message", "Face not recognized. Score: ${String.format("%.2f", bestMatchScore)}")
                     }
-                    putDouble("confidence", matchScore.toDouble())
+                    putDouble("confidence", bestMatchScore.toDouble())
                     putDouble("livenessScore", livenessScore.toDouble())
                     putDouble("irisQuality", irisQuality.toDouble())
                     putDouble("inferenceTimeMs", inferenceTimeMs.toDouble())
+                }
+                promise.resolve(result)
+
+            } catch (e: Exception) {
+                promise.reject("AUTH_ERROR", e.message, e)
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Layer 4: Challenge Generation (Replay Prevention)
+    // ═══════════════════════════════════════════════════════════════
+
+    @ReactMethod
+    fun generateChallenge(promise: Promise) {
+        val challengeId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+        activeChallenges[challengeId] = timestamp
+
+        // Clean up expired challenges
+        val now = System.currentTimeMillis()
+        activeChallenges.entries.removeAll { now - it.value > CHALLENGE_TTL_MS * 2 }
+
+        Log.d(TAG, "Challenge generated: $challengeId")
+        val result = WritableNativeMap().apply {
+            putString("challengeId", challengeId)
+            putDouble("timestamp", timestamp.toDouble())
+        }
+        promise.resolve(result)
+    }
+
+    private fun validateChallenge(challengeId: String): Boolean {
+        val timestamp = activeChallenges.remove(challengeId) ?: return false
+        val elapsed = System.currentTimeMillis() - timestamp
+        val valid = elapsed <= CHALLENGE_TTL_MS
+        Log.d(TAG, "Challenge validation: elapsed=${elapsed}ms, valid=$valid")
+        return valid
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Layer 2: Double-Take Micro-Movement Detection
+    // ═══════════════════════════════════════════════════════════════
+
+    private fun computeLandmarkMovement(
+        landmarks1: Array<FloatArray>,
+        landmarks2: Array<FloatArray>
+    ): Float {
+        var totalMovement = 0f
+        var count = 0
+
+        for (idx in MOVEMENT_LANDMARK_INDICES) {
+            if (idx < landmarks1.size && idx < landmarks2.size) {
+                val dx = landmarks1[idx][0] - landmarks2[idx][0]
+                val dy = landmarks1[idx][1] - landmarks2[idx][1]
+                val dist = sqrt(dx * dx + dy * dy)
+                totalMovement += dist
+                count++
+            }
+        }
+
+        val avgMovement = if (count > 0) totalMovement / count else 0f
+        Log.d(TAG, "Layer2 Movement: total=$totalMovement, avg=$avgMovement, landmarks=$count")
+        return totalMovement
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Layer 3: Screen Luminance Uniformity Detection
+    // ═══════════════════════════════════════════════════════════════
+
+    private fun computeLuminanceVariance(frame: ByteArray, bbox: FloatArray): Float {
+        val frameWidth = 320
+        val frameHeight = 240
+
+        val faceX = (bbox[0] * frameWidth).toInt().coerceIn(0, frameWidth - 1)
+        val faceY = (bbox[1] * frameHeight).toInt().coerceIn(0, frameHeight - 1)
+        val faceW = (bbox[2] * frameWidth).toInt().coerceIn(1, frameWidth - faceX)
+        val faceH = (bbox[3] * frameHeight).toInt().coerceIn(1, frameHeight - faceY)
+
+        val gridRows = 4
+        val gridCols = 4
+        val cellW = faceW / gridCols
+        val cellH = faceH / gridRows
+
+        if (cellW < 2 || cellH < 2) {
+            Log.d(TAG, "Layer3 Luminance: face too small for grid analysis")
+            return 1f
+        }
+
+        val cellMeans = FloatArray(gridRows * gridCols)
+
+        for (row in 0 until gridRows) {
+            for (col in 0 until gridCols) {
+                val startX = faceX + col * cellW
+                val startY = faceY + row * cellH
+                var sum = 0f
+                var count = 0
+
+                for (y in startY until (startY + cellH).coerceAtMost(frameHeight)) {
+                    for (x in startX until (startX + cellW).coerceAtMost(frameWidth)) {
+                        val idx = (y * frameWidth + x) * 3
+                        if (idx + 2 < frame.size) {
+                            val r = (frame[idx].toInt() and 0xFF) / 255f
+                            val g = (frame[idx + 1].toInt() and 0xFF) / 255f
+                            val b = (frame[idx + 2].toInt() and 0xFF) / 255f
+                            sum += 0.299f * r + 0.587f * g + 0.114f * b
+                            count++
+                        }
+                    }
+                }
+
+                cellMeans[row * gridCols + col] = if (count > 0) sum / count else 0f
+            }
+        }
+
+        val mean = cellMeans.average().toFloat()
+        var variance = 0f
+        for (v in cellMeans) {
+            val diff = v - mean
+            variance += diff * diff
+        }
+        val stdDev = sqrt(variance / cellMeans.size)
+
+        Log.d(TAG, "Layer3 Luminance: stdDev=$stdDev, mean=$mean (threshold: 0.03)")
+        return stdDev
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Double-Take Enrollment
+    // ═══════════════════════════════════════════════════════════════
+
+    @ReactMethod
+    fun enrollWithDoubleTake(
+        base64Image1: String,
+        base64Image2: String,
+        userId: String,
+        username: String,
+        additionalData: String,
+        challengeId: String,
+        promise: Promise
+    ) {
+        scope.launch {
+            try {
+                if (!validateChallenge(challengeId)) {
+                    throw Exception("Security challenge expired or invalid. Please try again.")
+                }
+
+                val frame1 = decodeBase64ToBytes(base64Image1)
+                val frame2 = decodeBase64ToBytes(base64Image2)
+
+                // Frame 1: Full pipeline
+                val faceResult1 = faceDetector.detect(frame1)
+                    ?: throw Exception("No face detected in frame 1")
+
+                val finalFace1 = if (faceResult1.meanBrightness < 0.313f) {
+                    modelManager.enhanceWithZeroDce(faceResult1.croppedFace)
+                } else {
+                    faceResult1.croppedFace
+                }
+
+                val landmarks1 = faceMeshProcessor.extract(finalFace1)
+
+                // Layer 1: Passive liveness
+                val livenessScore = livenessPassive.evaluate(frame1, faceResult1.boundingBox, null)
+                Log.d(TAG, "Enroll Layer1 Passive Liveness: $livenessScore")
+                if (livenessScore < 0.4f) {
+                    throw Exception("Spoof detected (passive liveness=${String.format("%.3f", livenessScore)}). Use a real face.")
+                }
+
+                val irisQuality = irisQualityAssessor.assess(frame1, landmarks1, faceResult1.boundingBox)
+                Log.d(TAG, "Enroll Iris quality: $irisQuality")
+                if (irisQuality < 0.3f) {
+                    throw Exception("Iris quality too low. Ensure eyes are visible.")
+                }
+
+                // Frame 2: Landmarks only
+                val faceResult2 = faceDetector.detect(frame2)
+                    ?: throw Exception("No face detected in frame 2 — hold still during capture")
+
+                // Skip Zero-DCE on frame 2 to save processing time
+                val finalFace2 = faceResult2.croppedFace
+                val landmarks2 = faceMeshProcessor.extract(finalFace2)
+
+                // Layer 2: Movement check
+                val movement = computeLandmarkMovement(landmarks1, landmarks2)
+                Log.d(TAG, "Enroll Layer2 Movement: $movement (threshold: $MOVEMENT_THRESHOLD)")
+                if (movement < MOVEMENT_THRESHOLD) {
+                    throw Exception("Still image detected — no facial micro-movement found. Use a live face, not a photo or screen.")
+                }
+
+                // Layer 3: Luminance variance
+                val luminanceStd = computeLuminanceVariance(frame1, faceResult1.boundingBox)
+                Log.d(TAG, "Enroll Layer3 Luminance StdDev: $luminanceStd")
+                if (luminanceStd < 0.03f) {
+                    throw Exception("Screen display detected — abnormally uniform lighting. Use a real face.")
+                }
+
+                val embedding = faceEmbedder.embed(finalFace1)
+
+                if (dbManager.checkUsernameExists(username)) {
+                    throw Exception("Username '$username' is already enrolled.")
+                }
+                val existingUser = dbManager.findMatchingFace(embedding)
+                if (existingUser != null) {
+                    throw Exception("This face is already registered under user: $existingUser")
+                }
+
+                dbManager.enrollUser(userId, username, additionalData, embedding)
+
+                val result = WritableNativeMap().apply {
+                    putBoolean("success", true)
+                    putString("message", "Enrollment successful — 4-layer verification passed")
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("ENROLL_ERROR", e.message, e)
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Double-Take Authentication
+    // ═══════════════════════════════════════════════════════════════
+
+    @ReactMethod
+    fun authenticateWithDoubleTake(
+        base64Image1: String,
+        base64Image2: String,
+        challengeId: String,
+        promise: Promise
+    ) {
+        scope.launch {
+            val startTime = System.currentTimeMillis()
+            try {
+                if (!validateChallenge(challengeId)) {
+                    throw Exception("Security challenge expired or invalid. Please try again.")
+                }
+
+                val frame1 = decodeBase64ToBytes(base64Image1)
+                val frame2 = decodeBase64ToBytes(base64Image2)
+
+                // Frame 1: Full pipeline
+                val faceResult1 = faceDetector.detect(frame1)
+                    ?: throw Exception("No face detected in frame 1")
+
+                val finalFace1 = if (faceResult1.meanBrightness < 0.313f) {
+                    modelManager.enhanceWithZeroDce(faceResult1.croppedFace)
+                } else {
+                    faceResult1.croppedFace
+                }
+
+                val landmarks1 = faceMeshProcessor.extract(finalFace1)
+
+                // Layer 1: Passive liveness
+                val livenessScore = livenessPassive.evaluate(frame1, faceResult1.boundingBox, null)
+                Log.d(TAG, "Auth Layer1 Passive Liveness: $livenessScore")
+                if (livenessScore < 0.4f) {
+                    throw Exception("Spoof detected (passive liveness=${String.format("%.3f", livenessScore)}). Use a real face.")
+                }
+
+                val irisQuality = irisQualityAssessor.assess(frame1, landmarks1, faceResult1.boundingBox)
+                Log.d(TAG, "Auth Iris quality: $irisQuality")
+                if (irisQuality < 0.3f) {
+                    throw Exception("Iris quality too low. Ensure eyes are visible.")
+                }
+
+                // Frame 2: Landmarks only
+                val faceResult2 = faceDetector.detect(frame2)
+                    ?: throw Exception("No face detected in frame 2 — hold still during capture")
+
+                // Skip Zero-DCE on frame 2 to save processing time
+                val finalFace2 = faceResult2.croppedFace
+                val landmarks2 = faceMeshProcessor.extract(finalFace2)
+
+                // Layer 2: Movement check
+                val movement = computeLandmarkMovement(landmarks1, landmarks2)
+                Log.d(TAG, "Auth Layer2 Movement: $movement (threshold: $MOVEMENT_THRESHOLD)")
+                if (movement < MOVEMENT_THRESHOLD) {
+                    throw Exception("Still image detected — no facial micro-movement. Use a live face.")
+                }
+
+                // Layer 3: Luminance variance
+                val luminanceStd = computeLuminanceVariance(frame1, faceResult1.boundingBox)
+                Log.d(TAG, "Auth Layer3 Luminance StdDev: $luminanceStd")
+                if (luminanceStd < 0.03f) {
+                    throw Exception("Screen display detected — abnormally uniform lighting.")
+                }
+
+                // Face Recognition
+                val embedding = faceEmbedder.embed(finalFace1)
+                val enrolledUsers = dbManager.getAllEnrolledUsers()
+                if (enrolledUsers.isEmpty()) {
+                    throw Exception("No users enrolled in database.")
+                }
+
+                var bestMatchScore = 0f
+                var bestUser: DatabaseManager.EnrolledUser? = null
+                for (user in enrolledUsers) {
+                    var dot = 0f
+                    for (i in embedding.indices) {
+                        dot += embedding[i] * user.embedding[i]
+                    }
+                    if (dot > bestMatchScore) {
+                        bestMatchScore = dot
+                        bestUser = user
+                    }
+                }
+                Log.d(TAG, "Auth Best match: score=$bestMatchScore, user=${bestUser?.username}")
+
+                val success = bestMatchScore > 0.65f && bestUser != null
+                val inferenceTimeMs = System.currentTimeMillis() - startTime
+
+                if (success && bestUser != null) {
+                    dbManager.insertAttendanceRecord(
+                        userHash = bestUser.userHash,
+                        confidence = bestMatchScore,
+                        livenessScore = livenessScore,
+                        latitude = null,
+                        longitude = null
+                    )
+                }
+
+                val result = WritableNativeMap().apply {
+                    putBoolean("success", success)
+                    if (success && bestUser != null) {
+                        putString("userId", bestUser.userHash)
+                        putString("username", bestUser.username)
+                        putString("additionalData", bestUser.additionalData)
+                    } else {
+                        putString("message", "Face not recognized")
+                    }
+                    putDouble("confidence", bestMatchScore.toDouble())
+                    putDouble("livenessScore", livenessScore.toDouble())
+                    putDouble("irisQuality", irisQuality.toDouble())
+                    putDouble("inferenceTimeMs", inferenceTimeMs.toDouble())
+                    putDouble("movementScore", movement.toDouble())
+                    putDouble("luminanceStdDev", luminanceStd.toDouble())
                     putArray("challengesCompleted", WritableNativeArray())
                 }
                 promise.resolve(result)
@@ -276,11 +660,12 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
     fun startLivenessChallenge(promise: Promise) {
         scope.launch {
             try {
+                val challenge = livenessActive.selectRandomChallenge()
                 val result = WritableNativeMap().apply {
-                    putString("action", "smile")
-                    putInt("timeoutMs", 5000)
-                    putString("instruction", "Please smile")
-                    putString("emoji", "😊")
+                    putString("action", challenge.action)
+                    putInt("timeoutMs", challenge.timeoutMs)
+                    putString("instruction", challenge.instruction)
+                    putString("emoji", challenge.emoji)
                 }
                 promise.resolve(result)
             } catch (e: Exception) {
@@ -299,6 +684,41 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
         scope.launch {
             try {
                 promise.resolve(dbManager.getPendingCount())
+            } catch (e: Exception) {
+                promise.reject("DB_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun getEnrolledUsers(promise: Promise) {
+        scope.launch {
+            try {
+                val users = dbManager.getAllEnrolledUsers()
+                val array = WritableNativeArray()
+                for (u in users) {
+                    val map = WritableNativeMap()
+                    map.putString("userId", u.userHash)
+                    map.putString("username", u.username)
+                    map.putString("additionalData", u.additionalData)
+                    array.pushMap(map)
+                }
+                promise.resolve(array)
+            } catch (e: Exception) {
+                promise.reject("DB_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun deleteUser(userId: String, promise: Promise) {
+        scope.launch {
+            try {
+                dbManager.deleteUser(userId)
+                val result = WritableNativeMap().apply {
+                    putBoolean("success", true)
+                }
+                promise.resolve(result)
             } catch (e: Exception) {
                 promise.reject("DB_ERROR", e.message, e)
             }

@@ -65,6 +65,7 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
   const [username, setUsername] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [phase, setPhase] = useState<'form' | 'capture' | 'result'>('form');
+  const [challenge, setChallenge] = useState<{action: string; instruction: string; emoji: string} | null>(null);
 
   // Camera
   const cameraRef = useRef<Camera>(null);
@@ -153,6 +154,15 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
       return;
     }
 
+    // Generate challenge token
+    try {
+      const activeChallenge = await BiometricsService.startLivenessChallenge();
+      setChallenge(activeChallenge);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to generate active liveness challenge.');
+      return;
+    }
+
     dispatch(startEnrollment());
     setPhase('capture');
     progressAnim.setValue(0);
@@ -166,77 +176,90 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
   ]);
 
   const handleCaptureFrame = useCallback(async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !challenge) return;
 
     try {
       dispatch(captureFrame());
 
       // Animate progress
       Animated.timing(progressAnim, {
-        toValue: enrollment.framesCaptured + 1,
+        toValue: 1, // Only 1 frame needed now
         duration: 300,
         useNativeDriver: false,
       }).start();
 
+      // Single-Shot: Photo 1
       const photo = await cameraRef.current.takePhoto({
-        flash: 'off',
+        flash: device?.hasFlash ? 'on' : 'off',
       });
 
-      logger.info('EnrollmentScreen', 'Frame captured', {
-        frame: enrollment.framesCaptured + 1,
-        path: photo.path,
-      });
+      logger.info('EnrollmentScreen', 'Single-Shot Active Liveness frame captured');
 
-      // If we have all 3 frames captured, process enrollment
-      if (enrollment.framesCaptured + 1 >= enrollment.framesRequired) {
-        dispatch(setStep('Processing embeddings...'));
+      dispatch(setStep('Running 7-step verification...'));
 
-        // Read the photo as base64 and call enroll
-        const RNFS = require('react-native-fs');
-        const base64 = await RNFS.readFile(photo.path, 'base64');
-        const userId = `user_${Date.now()}`;
+      const RNFS = require('react-native-fs');
+      const base64 = await RNFS.readFile(photo.path, 'base64');
+      const userId = `user_${Date.now()}`;
 
-        const result = await BiometricsService.enroll(
-          base64,
-          userId,
+      const result = await BiometricsService.enroll(
+        base64,
+        userId,
+        username,
+        challenge.action,
+        employeeId
+      );
+
+      if (result.success) {
+        dispatch(enrollSuccess(result.message));
+        logger.info('EnrollmentScreen', 'Enrollment successful', {
           username,
-          employeeId,
-        );
-
-        if (result.success) {
-          dispatch(enrollSuccess(result.message));
-          logger.info('EnrollmentScreen', 'Enrollment successful', {
-            username,
-          });
-        } else {
-          dispatch(enrollFailure(result.message));
-          logger.warn('EnrollmentScreen', 'Enrollment failed', {
-            message: result.message,
-          });
-        }
-
-        // Animate result card in
+        });
+        
+        // Animate result card in on success
         setPhase('result');
+        setChallenge(null);
         Animated.spring(resultAnim, {
           toValue: 1,
           friction: 6,
           useNativeDriver: true,
         }).start();
+      } else {
+        dispatch(enrollFailure(result.message));
+        logger.warn('EnrollmentScreen', 'Enrollment failed', {
+          message: result.message,
+        });
+        Alert.alert('Enrollment Failed', result.message || 'Please try again.');
+        
+        // Reset progress and generate new challenge so they can retry immediately
+        progressAnim.setValue(0);
+        dispatch({ type: 'enrollment/resetProgress' }); // Adjust if you have a reset action, or just rely on state
+        try {
+          const newChallenge = await BiometricsService.startLivenessChallenge();
+          setChallenge(newChallenge);
+        } catch (err) {
+          setChallenge(null);
+        }
       }
     } catch (error: any) {
       dispatch(enrollFailure(error.message || 'Capture failed'));
-      setPhase('result');
-      Animated.spring(resultAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true,
-      }).start();
+      Alert.alert('Error', error.message || 'Capture failed');
+      
+      // Reset progress and generate new challenge
+      progressAnim.setValue(0);
+      try {
+        const newChallenge = await BiometricsService.startLivenessChallenge();
+        setChallenge(newChallenge);
+      } catch (err) {
+        setChallenge(null);
+      }
     }
   }, [
     enrollment.framesCaptured,
     enrollment.framesRequired,
     username,
     employeeId,
+    challenge,
+    device,
     dispatch,
     progressAnim,
     resultAnim,
@@ -378,7 +401,14 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
           </TouchableOpacity>
           <View style={styles.captureHeaderCenter}>
             <Text style={styles.captureTitle}>Enrolling: {username}</Text>
-            <Text style={styles.captureSubtitle}>{enrollment.currentStep}</Text>
+            {challenge ? (
+              <View style={styles.challengeBadge}>
+                <Text style={styles.challengeEmoji}>{challenge.emoji}</Text>
+                <Text style={styles.challengeText}>{challenge.instruction}</Text>
+              </View>
+            ) : (
+              <Text style={styles.captureSubtitle}>{enrollment.currentStep}</Text>
+            )}
           </View>
         </View>
 
@@ -711,6 +741,30 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  captureSubtitle: {
+    color: '#888',
+    fontSize: 14,
+  },
+  challengeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#00E676',
+  },
+  challengeEmoji: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  challengeText: {
+    color: '#00E676',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   captureHeaderCenter: {
     flex: 1,

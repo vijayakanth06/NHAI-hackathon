@@ -68,26 +68,33 @@ class BiometricsService {
    * @param additionalData - Stringified JSON or metadata
    * @returns EnrollmentResult with success status
    */
-  async enroll(base64Image: string, userId: string, username: string, additionalData: string): Promise<EnrollmentResult> {
+  async enroll(
+    base64Image: string,
+    userId: string,
+    username: string,
+    challengeAction: string,
+    additionalData: string
+  ): Promise<EnrollmentResult> {
     this.assertInitialized();
     // Hash userId before passing to native (defense-in-depth)
     const hashedId = await this.hashUserId(userId);
-    return BiometricsModule.enroll(base64Image, hashedId, username, additionalData);
+    return BiometricsModule.enroll(base64Image, hashedId, username, challengeAction, additionalData);
   }
 
   /**
-   * Execute the full 7-step authentication pipeline.
-   *
-   * Pipeline:
-   * 1. Face Detection → 2. Enhancement → 3. Landmarks →
-   * 4. Embedding → 5. Passive Liveness → 6. Active Liveness →
-   * 7. Iris Quality → Fusion → Decision
-   *
-   * @returns AuthResult with confidence, liveness, and iris scores
+   * Execute the Single-Shot Active Liveness authentication pipeline.
    */
-  async authenticate(base64Image: string): Promise<AuthResult> {
+  async authenticate(base64Image: string, challengeAction: string): Promise<AuthResult> {
     this.assertInitialized();
-    return BiometricsModule.authenticate(base64Image);
+    return BiometricsModule.authenticate(base64Image, challengeAction);
+  }
+
+  /**
+   * Generate a random active liveness challenge (e.g. smile, turn head)
+   */
+  async startLivenessChallenge(): Promise<ChallengeInstruction> {
+    this.assertInitialized();
+    return BiometricsModule.startLivenessChallenge();
   }
 
   /**
@@ -148,6 +155,23 @@ class BiometricsService {
    */
   async getBenchmarkReport(): Promise<BenchmarkReport> {
     return BiometricsModule.getBenchmarkReport();
+  }
+
+  /**
+   * Get all enrolled users from the local SQLite database.
+   */
+  async getEnrolledUsers(): Promise<Array<{userId: string; username: string; additionalData: string}>> {
+    this.assertInitialized();
+    return BiometricsModule.getEnrolledUsers();
+  }
+
+  /**
+   * Delete an enrolled user by their unhashed ID.
+   */
+  async deleteUser(userId: string): Promise<{success: boolean}> {
+    this.assertInitialized();
+    const hashedId = await this.hashUserId(userId);
+    return BiometricsModule.deleteUser(hashedId);
   }
 
   /**

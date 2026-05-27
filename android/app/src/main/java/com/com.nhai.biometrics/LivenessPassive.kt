@@ -76,8 +76,8 @@ class LivenessPassive(private val modelManager: ModelManager) {
      */
     private fun evaluateSilentFas(fullFrame: ByteArray, bbox: FloatArray): Float {
         val scales = floatArrayOf(2.7f, 4.0f, 1.5f)
-        var minPReal = 1f
-        var minScale = 0f
+        var bestPReal = 0f
+        var count = 0
 
         for (scale in scales) {
             val resizedFace = extractAndResizeWideCrop(fullFrame, bbox, scale, SILENT_FAS_INPUT_SIZE, SILENT_FAS_INPUT_SIZE)
@@ -101,17 +101,16 @@ class LivenessPassive(private val modelManager: ModelManager) {
 
                 Log.d(TAG, "Silent-FAS scale=$scale → logits=[${spoof0}, ${real}, ${spoof2}] P(Real)=$pReal")
 
-                if (pReal < minPReal) {
-                    minPReal = pReal
-                    minScale = scale
-                }
+                if (pReal > bestPReal) bestPReal = pReal
+                count++
             } catch (e: Exception) {
                 Log.e(TAG, "Silent-FAS inference error at scale=$scale: ${e.message}")
             }
         }
 
-        Log.d(TAG, "Silent-FAS min P(Real) = $minPReal at scale=$minScale")
-        return minPReal
+        val finalScore = if (count > 0) bestPReal else 0f
+        Log.d(TAG, "Silent-FAS max P(Real) = $finalScore")
+        return finalScore
     }
 
     /**

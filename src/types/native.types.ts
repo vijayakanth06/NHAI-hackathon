@@ -43,28 +43,33 @@ export interface BiometricsModuleInterface extends NativeModule {
   dispose(): Promise<void>;
 
   /**
-   * Enroll a user by capturing 3 face frames, computing averaged
-   * 512-dim embedding, and storing in encrypted local database.
+   * Enroll a user with Single-Shot Active Liveness.
    *
    * @param userId - Raw user ID (will be SHA-256 hashed internally)
    * @returns EnrollmentResult with success status and message
    */
-  enroll(base64Image: string, userId: string, username: string, additionalData: string): Promise<EnrollmentResult>;
+  enroll(base64Image: string, userId: string, username: string, challengeAction: string, additionalData: string): Promise<EnrollmentResult>;
 
   /**
-   * Execute the full 7-step authentication pipeline:
-   * 1. Face Detection (FeatherFace)
-   * 2. Preprocessing + Zero-DCE enhancement (conditional)
-   * 3. 468-point Landmark Extraction (Face Mesh)
-   * 4. Feature Embedding (FaceLiVT 512-dim)
-   * 5. Passive Liveness (Silent-FAS + rPPG)
-   * 6. Active Liveness (geometric on landmarks)
-   * 7. Iris Quality Assessment
-   * → Score Fusion → Decision
+   * Execute the Single-Shot Active Liveness authentication pipeline:
    *
    * @returns AuthResult with confidence, liveness, iris quality scores
    */
-  authenticate(base64Image: string): Promise<AuthResult>;
+  authenticate(base64Image: string, challengeAction: string): Promise<AuthResult>;
+
+  /**
+   * Get all enrolled users from the local SQLite database.
+   *
+   * @returns Array of users with their userId (hash), username, and additionalData.
+   */
+  getEnrolledUsers(): Promise<Array<{userId: string; username: string; additionalData: string}>>;
+
+  /**
+   * Delete an enrolled user by their hashed ID.
+   *
+   * @returns Object with success status.
+   */
+  deleteUser(userId: string): Promise<{success: boolean}>;
 
   /**
    * Start a new active liveness challenge.

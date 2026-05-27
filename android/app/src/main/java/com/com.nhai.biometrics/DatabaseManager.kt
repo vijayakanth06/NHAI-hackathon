@@ -28,7 +28,6 @@ class DatabaseManager(private val context: Context, private val dbKey: ByteArray
             null
         )
         db.execSQL(CREATE_ATTENDANCE_TABLE)
-        db.execSQL("DROP TABLE IF EXISTS enrolled_users") // Dev only: force schema update
         db.execSQL(CREATE_ENROLLED_USERS_TABLE)
         db.execSQL(CREATE_SYNC_IDX)
         db.execSQL(CREATE_TS_IDX)
@@ -51,6 +50,62 @@ class DatabaseManager(private val context: Context, private val dbKey: ByteArray
     }
 
     /**
+     * Check if a username already exists in the database.
+     */
+    fun checkUsernameExists(username: String): Boolean {
+        val cursor = db.rawQuery(
+            "SELECT COUNT(*) FROM enrolled_users WHERE username=?",
+            arrayOf(username)
+        )
+        cursor.moveToFirst()
+        val count = cursor.getInt(0)
+        cursor.close()
+        return count > 0
+    }
+
+    /**
+     * Delete an enrolled user from the database.
+     */
+    fun deleteUser(userHash: String) {
+        db.execSQL(
+            "DELETE FROM enrolled_users WHERE user_hash=?",
+            arrayOf(userHash)
+        )
+    }
+
+    /**
+     * Check if a face embedding is already enrolled by comparing against ALL
+     * stored embeddings. Returns the username of the matching user, or null.
+     */
+    fun findMatchingFace(newEmbedding: FloatArray, threshold: Float = 0.55f): String? {
+        val cursor = db.rawQuery(
+            "SELECT username, embedding_blob FROM enrolled_users",
+            null
+        )
+        var matchedUsername: String? = null
+        while (cursor.moveToNext()) {
+            val storedUsername = cursor.getString(0)
+            val blob = cursor.getBlob(1)
+            val buffer = java.nio.ByteBuffer.wrap(blob)
+            val storedEmbedding = FloatArray(blob.size / 4)
+            for (i in storedEmbedding.indices) {
+                storedEmbedding[i] = buffer.getFloat()
+            }
+            // Cosine similarity (both are L2-normalized)
+            var dot = 0f
+            for (i in newEmbedding.indices) {
+                dot += newEmbedding[i] * storedEmbedding[i]
+            }
+            if (dot > threshold) {
+                matchedUsername = storedUsername
+                break
+            }
+        }
+        cursor.close()
+        return matchedUsername
+    }
+
+    /**
      * Retrieve the enrolled embedding for comparison.
      * Returns a 512-dim FloatArray.
      */
@@ -69,6 +124,41 @@ class DatabaseManager(private val context: Context, private val dbKey: ByteArray
             embedding[i] = buffer.getFloat()
         }
         return embedding
+    }
+
+    /**
+     * Data class to hold an enrolled user's identity and embedding.
+     */
+    data class EnrolledUser(
+        val userHash: String,
+        val username: String,
+        val additionalData: String,
+        val embedding: FloatArray
+    )
+
+    /**
+     * Get ALL enrolled users with their embeddings for multi-user authentication.
+     */
+    fun getAllEnrolledUsers(): List<EnrolledUser> {
+        val cursor = db.rawQuery(
+            "SELECT user_hash, username, additional_data, embedding_blob FROM enrolled_users",
+            null
+        )
+        val users = mutableListOf<EnrolledUser>()
+        while (cursor.moveToNext()) {
+            val userHash = cursor.getString(0)
+            val uname = cursor.getString(1)
+            val additionalData = cursor.getString(2)
+            val blob = cursor.getBlob(3)
+            val buffer = ByteBuffer.wrap(blob)
+            val embedding = FloatArray(blob.size / 4)
+            for (i in embedding.indices) {
+                embedding[i] = buffer.getFloat()
+            }
+            users.add(EnrolledUser(userHash, uname, additionalData, embedding))
+        }
+        cursor.close()
+        return users
     }
 
     /**
@@ -234,7 +324,7 @@ class DatabaseManager(private val context: Context, private val dbKey: ByteArray
         private const val CREATE_ENROLLED_USERS_TABLE = """
             CREATE TABLE IF NOT EXISTS enrolled_users (
               user_hash      TEXT PRIMARY KEY,
-              username       TEXT NOT NULL,
+              username       TEXT NOT NULL UNIQUE,
               additional_data TEXT NOT NULL,
               embedding_blob BLOB NOT NULL,
               enrolled_at    INTEGER NOT NULL

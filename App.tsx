@@ -35,7 +35,9 @@ import BiometricsService from './src/services/BiometricsService';
 import type { AuthResult } from './src/types/biometrics.types';
 import type { AppDispatch } from './src/store';
 
-type Screen = 'home' | 'enroll' | 'auth_camera' | 'auth_result';
+import { DatabaseAdminScreen } from './src/screens/DatabaseAdminScreen';
+
+type Screen = 'home' | 'enroll' | 'auth_camera' | 'auth_result' | 'admin';
 
 /**
  * Inner app component that has access to the Redux store via Provider.
@@ -55,6 +57,9 @@ function AppInner() {
 
   // Auth result
   const [lastAuthResult, setLastAuthResult] = useState<AuthResult | null>(null);
+
+  // Challenge info for active liveness
+  const [challenge, setChallenge] = useState<{action: string; instruction: string; emoji: string} | null>(null);
 
   const requestCameraPermission = useCallback(async () => {
     try {
@@ -85,6 +90,14 @@ function AppInner() {
   const handleNavigateAuth = useCallback(async () => {
     const ok = hasCameraPermission || (await requestCameraPermission());
     if (ok) {
+      // Generate active liveness challenge BEFORE opening camera
+      try {
+        const activeChallenge = await BiometricsService.startLivenessChallenge();
+        setChallenge(activeChallenge);
+      } catch (err) {
+        Alert.alert('Error', 'Failed to generate liveness challenge.');
+        return;
+      }
       setCurrentScreen('auth_camera');
     } else {
       Alert.alert('Camera permission is required for authentication.');
@@ -92,27 +105,49 @@ function AppInner() {
   }, [hasCameraPermission, requestCameraPermission]);
 
   const handleCapture = useCallback(async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !challenge) return;
 
     try {
       setIsProcessing(true);
+
+      // Single-Shot Active Liveness
       const photo = await cameraRef.current.takePhoto({
-        flash: 'off',
+        flash: device?.hasFlash ? 'on' : 'off',
       });
 
       const RNFS = require('react-native-fs');
       const base64 = await RNFS.readFile(photo.path, 'base64');
-      const result = await BiometricsService.authenticate(base64);
 
-      setLastAuthResult(result);
-      dispatch(setAuthResult(result));
-      setCurrentScreen('auth_result');
+      // Call single-shot authentication pipeline
+      const result = await BiometricsService.authenticate(
+        base64,
+        challenge.action,
+      );
+
+      if (result.success) {
+        setLastAuthResult(result);
+        dispatch(setAuthResult(result));
+        setCurrentScreen('auth_result');
+      } else {
+        // Stay on camera screen and allow retry
+        Alert.alert('Authentication Failed', result.message || 'Face not recognized.');
+        
+        // Generate a new challenge for the next attempt
+        const newChallenge = await BiometricsService.startLivenessChallenge();
+        setChallenge(newChallenge);
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Authentication failed');
+      Alert.alert('Authentication Error', error.message);
+      
+      // On native error, also generate a new challenge for next retry
+      try {
+        const newChallenge = await BiometricsService.startLivenessChallenge();
+        setChallenge(newChallenge);
+      } catch (e) {}
     } finally {
       setIsProcessing(false);
     }
-  }, [dispatch]);
+  }, [challenge, device]);
 
   // ─── AUTH RESULT SCREEN ───
   if (currentScreen === 'auth_result' && lastAuthResult) {
@@ -217,9 +252,12 @@ function AppInner() {
           </TouchableOpacity>
           <View style={styles.cameraHeaderCenter}>
             <Text style={styles.cameraTitle}>🔐 Identity Verification</Text>
-            <Text style={styles.cameraSubtitle}>
-              Position your face in the guide and tap capture
-            </Text>
+            {challenge && (
+              <View style={styles.challengeBadge}>
+                <Text style={styles.challengeEmoji}>{challenge.emoji}</Text>
+                <Text style={styles.challengeText}>{challenge.instruction}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -286,6 +324,11 @@ function AppInner() {
     );
   }
 
+  // ─── ADMIN SCREEN ───
+  if (currentScreen === 'admin') {
+    return <DatabaseAdminScreen onBack={() => setCurrentScreen('home')} />;
+  }
+
   // ─── HOME SCREEN (DEFAULT) ───
   return (
     <HomeScreen
@@ -295,6 +338,7 @@ function AppInner() {
         // Phase 5 placeholder — sync screen not yet implemented
         Alert.alert('Info', 'Sync screen will be implemented in Phase 5.');
       }}
+      onNavigateAdmin={() => setCurrentScreen('admin')}
     />
   );
 }
@@ -414,9 +458,28 @@ const styles = StyleSheet.create({
     color: '#FFF',
   },
   cameraSubtitle: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+  },
+  challengeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 230, 118, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#00E676',
+  },
+  challengeEmoji: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  challengeText: {
+    color: '#00E676',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   cameraContainer: {
     flex: 1,
