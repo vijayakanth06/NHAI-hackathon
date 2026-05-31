@@ -29,7 +29,7 @@ interface EnrollmentState {
 const initialState: EnrollmentState = {
   isEnrolling: false,
   framesCaptured: 0,
-  framesRequired: 3,
+  framesRequired: 1,
   currentStep: '',
   success: null,
   message: null,

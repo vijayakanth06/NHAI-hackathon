@@ -89,7 +89,7 @@ export const AuthenticationScreen: React.FC<AuthenticationScreenProps> = ({ onBa
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-            <Text style={styles.backText}>✕</Text>
+            <Text style={styles.backText}>← Back</Text>
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.title}>🔐 Identity Verification</Text>
@@ -165,18 +165,18 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2A2A2A',
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#2A2A2A',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#2A2A2A',
     marginRight: 14,
   },
   backText: {
-    color: '#FFF',
+    color: '#00E676',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   headerCenter: {
     flex: 1,

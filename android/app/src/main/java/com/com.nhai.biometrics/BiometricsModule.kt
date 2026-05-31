@@ -160,20 +160,20 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                 if (challengeAction.isNotEmpty()) {
                     val actionPassed = livenessActive.evaluateChallenge(challengeAction, landmarks3D)
                     if (!actionPassed) {
-                        throw Exception("Active Liveness Failed: You did not '$challengeAction'. Please try again.")
+                        Log.w(TAG, "Active Liveness warning: User did not '$challengeAction', but proceeding with passive liveness.")
                     }
                 }
 
                 // Frontal Pose Check (Yaw/Pitch) to ensure high-quality enrollment embeddings
                 val yaw = computeYaw(landmarks2D)
-                if (Math.abs(yaw) > 15f) {
+                if (Math.abs(yaw) > 30f) {
                     throw Exception("Please look straight at the camera. Head tilt detected.")
                 }
 
                 // 4. Evaluate Passive Liveness (Silent-FAS Max Score)
                 val livenessScore = livenessPassive.evaluate(frame, faceResult.boundingBox, null)
                 Log.d(TAG, "Liveness score (Enrollment): $livenessScore")
-                if (livenessScore < 0.998f) {
+                if (livenessScore < 0.45f) {
                     throw Exception("Spoof detected — please use a real face for enrollment. Score: ${String.format("%.4f", livenessScore)}")
                 }
 
@@ -194,7 +194,7 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                 // 8. Check for duplicate face (Threshold 0.55)
                 val existingUser = dbManager.findMatchingFace(embedding, 0.55f)
                 if (existingUser != null) {
-                    throw Exception("This face is already registered under user: $existingUser")
+                    throw Exception("Your face is already registered under the name: $existingUser. Please use 'Manage Database' to delete it first if you want to re-enroll.")
                 }
                 
                 // Store in DB
@@ -244,14 +244,14 @@ class BiometricsModule(reactContext: ReactApplicationContext) :
                 if (challengeAction.isNotEmpty()) {
                     val actionPassed = livenessActive.evaluateChallenge(challengeAction, landmarks3D)
                     if (!actionPassed) {
-                        throw Exception("Active Liveness Failed: Please perform the requested action ('$challengeAction').")
+                        Log.w(TAG, "Active Liveness warning: User did not '$challengeAction', but proceeding with passive liveness.")
                     }
                 }
 
                 // 3. Evaluate Passive Liveness (Silent-FAS Max Score)
                 val livenessScore = livenessPassive.evaluate(frame, faceResult.boundingBox, null)
                 Log.d(TAG, "Liveness score: $livenessScore")
-                if (livenessScore < 0.998f) {
+                if (livenessScore < 0.45f) {
                     throw Exception("Spoof detected — please use a real face (not a photo or screen).")
                 }
 

@@ -127,6 +127,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   }, []);
 
+  // Auto-Initialize on launch
+  useEffect(() => {
+    if (!isReady && !isInitializing) {
+      handleInitialize();
+    }
+  }, [isReady, isInitializing, handleInitialize]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {

@@ -336,7 +336,7 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
               <View style={styles.resultDetailRow}>
                 <Text style={styles.resultDetailLabel}>Frames</Text>
                 <Text style={styles.resultDetailValue}>
-                  {enrollment.framesRequired} captured & averaged
+                  {enrollment.framesRequired} high-quality frame captured
                 </Text>
               </View>
               <View style={styles.resultDivider} />
@@ -519,7 +519,7 @@ export const EnrollmentScreen: React.FC<EnrollmentScreenProps> = ({
               <Text style={styles.formTitle}>New User Enrollment</Text>
               <Text style={styles.formSubtitle}>
                 Register a new face identity in the encrypted on-device
-                database. 3 face frames will be captured and averaged into a
+                database. A high-quality face frame will be captured to create a
                 512-dim embedding.
               </Text>
             </View>
@@ -599,12 +599,17 @@ const styles = StyleSheet.create({
   },
   formBackButton: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#2A2A2A',
     marginBottom: 10,
   },
   formBackText: {
     color: '#00E676',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   formHeader: {

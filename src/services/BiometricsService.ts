@@ -35,6 +35,7 @@ const { BiometricsModule } = NativeModules as {
  */
 class BiometricsService {
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   /**
    * Initialize the biometrics pipeline.
@@ -45,8 +46,15 @@ class BiometricsService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await BiometricsModule.initialize();
-    this.initialized = true;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = BiometricsModule.initialize().then(() => {
+      this.initialized = true;
+    }).finally(() => {
+      this.initPromise = null;
+    });
+
+    return this.initPromise;
   }
 
   /**

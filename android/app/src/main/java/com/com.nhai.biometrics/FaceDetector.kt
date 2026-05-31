@@ -13,8 +13,8 @@ class FaceDetector(private val modelManager: ModelManager) {
         const val INPUT_WIDTH = 128
         const val INPUT_HEIGHT = 128
         const val INPUT_CHANNELS = 3
-        // Lowered from 0.6 to 0.5 to allow detections at wider angles / distances
-        const val CONFIDENCE_THRESHOLD = 0.5f
+        // Lowered from 0.5 to 0.15 to allow detections at wider angles / distances
+        const val CONFIDENCE_THRESHOLD = 0.15f
         const val NUM_ANCHORS = 896
     }
 

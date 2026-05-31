@@ -94,7 +94,7 @@ class LivenessActive {
         val leftEar = computeEAR(landmarks, LEFT_EYE)
         val rightEar = computeEAR(landmarks, RIGHT_EYE)
         val avgEar = (leftEar + rightEar) / 2f
-        return avgEar < 0.20f
+        return avgEar < 0.25f
     }
 
     /**
@@ -105,7 +105,7 @@ class LivenessActive {
         val width = dist(landmarks[MOUTH_LEFT], landmarks[MOUTH_RIGHT])
         val height = dist(landmarks[UPPER_LIP], landmarks[LOWER_LIP])
         val ratio = if (height > 0) width / height else 0f
-        return ratio > 2.8f
+        return ratio > 1.8f
     }
 
     /**

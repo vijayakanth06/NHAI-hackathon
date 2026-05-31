@@ -12,7 +12,7 @@
  *               └─> Sync Screen (future Phase 5)
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   SafeAreaView,
   StatusBar,
@@ -24,6 +24,7 @@ import {
   Platform,
   PermissionsAndroid,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { Provider, useDispatch } from 'react-redux';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
@@ -49,6 +50,24 @@ function AppInner() {
 
   // Navigation state
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
+
+  // Handle hardware back button on Android
+  useEffect(() => {
+    const backAction = () => {
+      if (currentScreen !== 'home') {
+        setCurrentScreen('home');
+        return true; // Prevent default behavior (exiting the app)
+      }
+      return false; // Let default behavior happen
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction,
+    );
+
+    return () => backHandler.remove();
+  }, [currentScreen]);
 
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
 
